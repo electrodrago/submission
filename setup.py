@@ -1,6 +1,7 @@
 import os
 import pip
 import shutil
+import subprocess
 
 def install(package):
     if hasattr(pip, 'main'):
@@ -10,7 +11,7 @@ def install(package):
 
 # Install requirement packages
 install("openmim==0.3.9")
-install("mmcv==2.1.0")
+subprocess.call(["mim", "install", "mmcv>=2.0.0"])
 install("mmagic==1.2.0")
 install("mmengine==0.10.3")
 install("diffusers==0.23.0")
