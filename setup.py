@@ -20,6 +20,6 @@ install("diffusers==0.23.0")
 import mmagic
 path = os.path.dirname(mmagic.__file__)
 
-shutil.copytree("/real_cleanvsr", os.path.join(path, "editors/real_cleanvsr"))
-shutil.copytree("/real_csrgan", os.path.join(path, "editors/real_csrgan"))
-shutil.copy("/editors/__init__.py", os.path.join(path, "editors/__init__.py"))
+shutil.copytree("real_cleanvsr", os.path.join(path, "models/editors/real_cleanvsr"))
+shutil.copytree("real_csrgan", os.path.join(path, "models/editors/real_csrgan"))
+shutil.copy("editors/__init__.py", os.path.join(path, "models/editors/__init__.py"))
