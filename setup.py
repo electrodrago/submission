@@ -14,7 +14,7 @@ install("openmim==0.3.9")
 subprocess.call(["mim", "install", "mmcv>=2.0.0"])
 install("mmagic==1.2.0")
 install("mmengine==0.10.3")
-install("diffusers==0.23.0")
+install("diffusers==0.24.0")
 
 # Setup models location
 import mmagic

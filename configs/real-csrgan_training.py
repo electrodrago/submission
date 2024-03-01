@@ -4,7 +4,7 @@ experiment_name = 'real-csrgan_finetune'
 work_dir = f'./work_dirs/{experiment_name}'
 save_dir = './work_dirs/'
 
-load_from = ""
+# load_from = ""
 
 scale = 4
 gt_crop_size = 400
@@ -220,14 +220,12 @@ train_dataloader = dict(
         pipeline=train_pipeline))
 
 train_cfg = dict(
-    _delete_=True,
     type='IterBasedTrainLoop',
     max_iters=50_000,
     val_interval=51_000)
 
 # optimizer
 optim_wrapper = dict(
-    _delete_=True,
     constructor='MultiOptimWrapperConstructor',
     generator=dict(
         type='OptimWrapper',
@@ -270,7 +268,6 @@ custom_hooks = [
         interp_cfg=dict(momentum=0.001),
     )
 ]
-
 
 # learning policy
 param_scheduler = None

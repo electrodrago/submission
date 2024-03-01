@@ -13,7 +13,7 @@ model = dict(
         type='RealCleanVSRNet',
         mid_channels=64, 
         num_blocks=12,
-        num_cleaning_blocks=15,
+        num_clean_blocks=15,
         max_residue_magnitude=10,
         spynet_pretrained='./spynet/spynet.pth'),
     pixel_loss=dict(type='L1Loss', loss_weight=1.0, reduction='mean'),

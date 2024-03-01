@@ -85,17 +85,17 @@ class CleanRRDBNet(BaseModule):
         lq_cleaned = x.detach().clone()
 
         for _ in range(0, 3):  # at most 3 cleaning, determined empirically
-            residues = self.image_cleaning(lq_cleaned)
+            residues = self.dynamic_clean(lq_cleaned)
             lq_cleaned = lq_cleaned + residues
 
             # determine whether to continue cleaning
             if torch.mean(torch.abs(residues)) < 1.0:
                 break
 
-        feat_raw = self.feat_extract(x)
-        feat_cleaned = self.feat_extract_clean(lq_cleaned)
+        feat_raw = self.raw_encoder(x)
+        feat_cleaned = self.cleaned_encoder(lq_cleaned)
 
-        feat = torch.cat([feat_raw, feat_clean], dim=1)
+        feat = torch.cat([feat_raw, feat_cleaned], dim=1)
 
         body_feat = self.conv_body(self.body(feat))
         feat = feat + body_feat

@@ -7,16 +7,16 @@ save_dir = './work_dirs/'
 scale = 4
 
 model = dict(
-    type='Re_RealBasicVSR',
+    type='RealCleanVSR',
     generator=dict(
-        type='Re_RealBasicVSRNet',
+        type='RealCleanVSRNet',
         mid_channels=64, 
         num_blocks=12,
-        num_cleaning_blocks=15,
+        num_clean_blocks=15,
         max_residue_magnitude=10,
-        spynet_pretrained='/content/re-realbasicvsr/spynet.pth'),
+        spynet_pretrained='./spynet/spynet.pth'),
     pixel_loss=dict(type='L1Loss', loss_weight=1.0, reduction='mean'),
-    cleaning_loss=dict(type='L1Loss', loss_weight=1.0, reduction='mean'),
+    dynamic_clean_loss=dict(type='L1Loss', loss_weight=1.0, reduction='mean'),
     is_use_sharpened_gt_in_pixel=True,
     is_use_ema=True,
     data_preprocessor=dict(
@@ -41,6 +41,8 @@ demo_pipeline = [
     dict(type='PackInputs')
 ]
 
+data_root = "data"
+
 test_dataloader = dict(
     num_workers=1,
     batch_size=1,
@@ -49,8 +51,8 @@ test_dataloader = dict(
     dataset=dict(
         type='BasicFramesDataset',
         metainfo=dict(dataset_type='reds', task_name='vsr'),
-        data_root= '/content/drive/MyDrive/1THESIS/VSR_DTS/REDS4',
-        data_prefix=dict(img='/content/LR', gt='/content/HR'),
+        data_root= data_root,
+        data_prefix=dict(img='path/LR', gt='path/HR'),
         pipeline=test_pipeline))
 
 

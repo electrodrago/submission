@@ -4,7 +4,7 @@ experiment_name = 'perception-oriented_phase'
 work_dir = f'./work_dir/{experiment_name}'
 save_dir = './work_dir/'
 
-load_from = './work_dir/distortion-oriented_phase/iter_400000.pth'  # noqa
+# load_from = './work_dir/distortion-oriented_phase/iter_400000.pth'  # noqa
 
 scale = 4
 
@@ -15,7 +15,7 @@ model = dict(
         type='RealCleanVSRNet',
         mid_channels=64, 
         num_blocks=12,
-        num_cleaning_blocks=15,
+        num_clean_blocks=15,
         max_residue_magnitude=10,
         spynet_pretrained='./spynet/spynet.pth'),
     discriminator=dict(

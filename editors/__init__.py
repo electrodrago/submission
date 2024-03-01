@@ -90,6 +90,6 @@ __all__ = [
     'StyleGAN3Generator', 'InstColorization', 'NAFBaseline',
     'NAFBaselineLocal', 'NAFNet', 'NAFNetLocal', 'DenoisingUnet',
     'ClipWrapper', 'EG3D', 'Restormer', 'SwinIRNet', 'StableDiffusion',
-    'ControlStableDiffusion', 'DreamBooth', 'RealCleanVSRNet', 'RealCleanVSR'
+    'ControlStableDiffusion', 'DreamBooth', 'RealCleanVSRNet', 'RealCleanVSR',
     'CleanRRDBNet'
 ]
