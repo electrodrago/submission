@@ -41,7 +41,7 @@ demo_pipeline = [
     dict(type='PackInputs')
 ]
 
-data_root = "data"
+data_root = "data/val"
 
 test_dataloader = dict(
     num_workers=1,
@@ -52,7 +52,7 @@ test_dataloader = dict(
         type='BasicFramesDataset',
         metainfo=dict(dataset_type='reds', task_name='vsr'),
         data_root= data_root,
-        data_prefix=dict(img='path/LR', gt='path/HR'),
+        data_prefix=dict(img='val_sharp_bicubic/X4', gt='val_sharp'),
         pipeline=test_pipeline))
 
 

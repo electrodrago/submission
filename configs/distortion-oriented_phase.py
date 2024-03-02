@@ -197,7 +197,7 @@ demo_pipeline = [
     dict(type='PackInputs')
 ]
 
-data_root = 'data'
+data_root = 'data/train'
 
 train_dataloader = dict(
     num_workers=12,
@@ -207,7 +207,7 @@ train_dataloader = dict(
     dataset=dict(
         type='BasicFramesDataset',
         metainfo=dict(dataset_type='reds', task_name='vsr'),
-        data_root="/data/train",
+        data_root=data_root,
         data_prefix=dict(img='train_sharp_bicubic/X4', gt='train_sharp'),
         depth=1,
         num_input_frames=10,
