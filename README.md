@@ -15,7 +15,9 @@ As the average distortion decreases, the likelihood of accurately distinguishing
 - [Installation](#installation)
 - [Getting Started](#getting-started)
 - [Pretrained Model](#pretrained-model)
+- [Architecture](#architecture)
 - [Citation](#citation)
+- [Acknowledgement](#acknowledgement)
 
 ## Installation
 
@@ -97,14 +99,17 @@ To ease the usage, we provide the pretrained model at: [Google Drive](https://dr
 Download and put the pretrained model in `pretrained` folder.
 
 ## Architecture
+### RealCleanVSR
 <p align="center"> <img src='img/realcleanvsr.png' align="center" > </p>
 
+### Real-CSRGAN
 <p align="center"> <img src='img/real-csrgan.png' align="center" > </p>
 
+### Dyna-Mix Cleaning and Self-Reference Upsampling
 <p align="center"> <img src='img/dyna-mix-self-ref.png' align="center" > </p>
 
 ## Citation
 
-## Acknowledgements
+## Acknowledgement
 
-This respository is mainly based on [MMagic](https://github.com/open-mmlab/mmagic). Thanks for their great works!
+This respository is heavily inspired by [MMagic](https://github.com/open-mmlab/mmagic). Thanks for their great works!

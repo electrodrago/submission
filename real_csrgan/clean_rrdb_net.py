@@ -1,4 +1,4 @@
-# Copyright (c) OpenMMLab. All rights reserved.
+# Implementation of Real-CSRGAN
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

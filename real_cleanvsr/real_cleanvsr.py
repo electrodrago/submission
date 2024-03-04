@@ -1,4 +1,4 @@
-# Copyright (c) OpenMMLab. All rights reserved.
+# Implementation of RealCleanVSR
 from typing import Dict, List
 
 import torch
