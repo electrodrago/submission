@@ -808,7 +808,6 @@ class ResidualGroup(nn.Module):
 
     Args:
         dim (int): Number of input channels.
-        input_resolution (tuple[int]): Input resolution.
         depth (int): Number of blocks.
         mlp_ratio (float): Ratio of mlp hidden dim to embedding dim.
         drop_path (float | tuple[float], optional): Stochastic depth rate. Default: 0.0
@@ -817,7 +816,6 @@ class ResidualGroup(nn.Module):
 
     def __init__(self,
                  dim,
-                 input_resolution,
                  depth,
                  d_state=16,
                  mlp_ratio=4.,
@@ -826,11 +824,9 @@ class ResidualGroup(nn.Module):
         super(ResidualGroup, self).__init__()
 
         self.dim = dim
-        self.input_resolution = input_resolution # [64, 64]
 
         self.residual_group = BasicLayer(
             dim=dim,
-            input_resolution=input_resolution,
             depth=depth,
             d_state = d_state,
             mlp_ratio=mlp_ratio,

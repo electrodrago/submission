@@ -63,8 +63,7 @@ from .ttsr import LTE, TTSR, SearchTransformer, TTSRDiscriminator, TTSRNet
 from .wgan_gp import WGANGP
 from .real_cleanvsr import RealCleanVSRNet, RealCleanVSR
 from .real_csrgan import CleanRRDBNet
-from .mambavsr_net import MambaVSRNet
-from .mambavsr_other_net import MambaVSROtherNet
+from .mambavsr import MambaVSRNet, MambaVSROtherNet
 
 __all__ = [
     'AOTEncoderDecoder', 'AOTBlockNeck', 'AOTInpaintor',

@@ -47,8 +47,8 @@ train_pipeline = [
 data_root = '/content/drive/MyDrive/1THESIS/train'
 
 train_dataloader = dict(
-    num_workers=6,
-    batch_size=4,
+    num_workers=12,
+    batch_size=8,
     persistent_workers=False,
     sampler=dict(type='InfiniteSampler', shuffle=True),
     dataset=dict(
