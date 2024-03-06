@@ -1,4 +1,4 @@
-# RealCleanVSR
+<!-- # RealCleanVSR
 
 <p align="center"> <img src='img/percep-distor_plane.png' align="center" height="300"> </p>
 
@@ -112,4 +112,4 @@ Download and put the pretrained model in `pretrained` folder.
 
 ## Acknowledgement
 
-This respository is heavily inspired by [MMagic](https://github.com/open-mmlab/mmagic). Thanks for their great works!
+This respository is heavily inspired by [MMagic](https://github.com/open-mmlab/mmagic). Thanks for their great works! -->
