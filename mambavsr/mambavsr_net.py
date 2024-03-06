@@ -97,6 +97,8 @@ class MambaVSRNet(BaseModule):
             scale_factor=4, mode='bilinear', align_corners=False)
 
         self._raised_warning = False
+        # Fix SpyNet parameters
+        self.spynet.requires_grad_(False)
     
     def forward_aggr(self, x):
         # x: [n, c, h, w]
