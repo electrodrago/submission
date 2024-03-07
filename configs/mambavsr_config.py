@@ -8,12 +8,11 @@ scale = 4
 # /content/drive/MyDrive
 # model settings
 model = dict(
-    type='BasicVSR',
+    type='MambaVSR',
     generator=dict(
         type='MambaVSROtherNet',
         mid_channels=64,
-        prop_blocks=7,
-        embed_dim=192,
+        prop_blocks=10,
         depth=6,
         d_state=16,
         drop_rate=0.,
@@ -22,6 +21,7 @@ model = dict(
         spynet_pretrained='https://download.openmmlab.com/mmediting/restorers/'
         'basicvsr/spynet_20210409-c6c1bd09.pth'),
     pixel_loss=dict(type='CharbonnierLoss', loss_weight=1.0, reduction='mean'),
+    reconstruct_loss=dict(type='L1Loss', loss_weight=1.0, reduction='mean'),
     data_preprocessor=dict(
         type='DataPreprocessor',
         mean=[0., 0., 0.],
@@ -58,7 +58,7 @@ train_dataloader = dict(
         data_root=data_root,
         data_prefix=dict(img='train_sharp_bicubic/X4', gt='train_sharp'),
         depth=1,
-        num_input_frames=10,
+        num_input_frames=5,
         pipeline=train_pipeline))
 
 train_cfg = dict(

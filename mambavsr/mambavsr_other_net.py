@@ -38,7 +38,7 @@ class MambaVSROtherNet(BaseModule):
 
     def __init__(self, 
                     mid_channels=64, 
-                    prop_blocks=5,
+                    prop_blocks=10,
                     depth=6,
                     d_state=16,
                     drop_rate=0.,
@@ -57,12 +57,18 @@ class MambaVSROtherNet(BaseModule):
 
         # optical flow network for feature alignment
         self.spynet = SPyNet(pretrained=spynet_pretrained)
+        
+        # Second loss branch to guide the flow warped
+        self.reconstruct_from_warped = nn.Sequential(
+            ResidualBlocksWithInputConv(mid_channels * 2, mid_channels, 5),
+            nn.Conv2d(mid_channels, 3, 3, 1, 1, bias=True),
+        )
 
         # feature extraction
         self.feat_extract = ResidualBlocksWithInputConv(3, mid_channels, 5)
 
         # propagation blocks
-        self.backward_prop = nn.Conv2d(mid_channels * 2, mid_channels, 3, 1, 1)
+        self.backward_prop = ResidualBlocksWithInputConv(mid_channels * 2, mid_channels, prop_blocks)
         self.backward_vssmg = ResidualGroup(
             dim=mid_channels,
             depth=depth,
@@ -72,7 +78,7 @@ class MambaVSROtherNet(BaseModule):
             norm_layer=norm_layer
         )
 
-        self.forward_prop = nn.Conv2d(mid_channels * 2, mid_channels, 3, 1, 1)
+        self.forward_prop = ResidualBlocksWithInputConv(mid_channels * 2, mid_channels, prop_blocks)
         self.forward_vssmg = ResidualGroup(
             dim=mid_channels,
             depth=depth,
@@ -81,9 +87,6 @@ class MambaVSROtherNet(BaseModule):
             drop_path=dpr,
             norm_layer=norm_layer
         )
-        self.embed = Embed(embed_dim=mid_channels)
-        self.unembed = UnEmbed(embed_dim=mid_channels)
-        self.norm = norm_layer(mid_channels)
 
         # aggregation
         self.fusion = nn.Conv2d(
@@ -98,6 +101,9 @@ class MambaVSROtherNet(BaseModule):
             drop_path=dpr,
             norm_layer=norm_layer
         )
+        self.embed = Embed(embed_dim=mid_channels)
+        self.unembed = UnEmbed(embed_dim=mid_channels)
+        self.norm = norm_layer(mid_channels)
 
         # upsample
         self.upsample1 = PixelShufflePack(
@@ -110,8 +116,6 @@ class MambaVSROtherNet(BaseModule):
             scale_factor=4, mode='bilinear', align_corners=False)
 
         self._raised_warning = False
-        # Fix SpyNet parameters
-        self.spynet.requires_grad_(False)
     
     def ssm(self, x, func):
         # x: [n, c, h, w]
@@ -161,7 +165,7 @@ class MambaVSROtherNet(BaseModule):
             feat_prop = self.ssm(feat_prop, self.forward_vssmg)
 
             feats_forward.append(feat_prop)
-        return feats_backward, feats_forward
+        return torch.stack(feats_backward, dim=1), torch.stack(feats_forward, dim=1)
 
     def check_if_mirror_extended(self, lrs):
         """Check whether the input is a mirror-extended sequence.
@@ -208,7 +212,7 @@ class MambaVSROtherNet(BaseModule):
 
         return flows_forward, flows_backward
 
-    def forward(self, lrs):
+    def forward(self, lrs, return_reconstructed=False):
         """Forward function for MambaVSR.
 
         Args:
@@ -237,14 +241,20 @@ class MambaVSROtherNet(BaseModule):
         feats = feats.view(n, t, -1, h, w)
         feats_backward, feats_forward = self.propagation(feats, flows_backward, flows_forward)
 
+        recon = torch.cat([feats_backward, feats_forward], dim=2)
+        recon = self.reconstruct_from_warped(recon.view(-1, self.mid_channels * 2, h, w))
+        recon = recon.view(n, t, -1, h, w)
+
         # aggregation and upsampling
         outputs = []
         for i in range(0, t):
             feat_curr = feats[:, i, :, :, :]
+            feat_backward = feats_backward[:, i, :, :, :]
+            feat_forward = feats_backward[:, i, :, :, :]
             
             # TODO: concat backward and forward, then selection
             # aggregate backward and forward 
-            out = torch.cat([feats_backward[i], feat_curr, feats_forward[i]], dim=1)
+            out = torch.cat([feat_backward, feat_curr, feat_forward], dim=1)
             out = self.lrelu(self.fusion(out))
             out = self.ssm(out, self.vssmg_aggr)
 
@@ -257,7 +267,10 @@ class MambaVSROtherNet(BaseModule):
             out += base
             outputs.append(out)
 
-        return torch.stack(outputs, dim=1)
+        if return_reconstructed:
+            return torch.stack(outputs, dim=1), recon
+        else:
+            return torch.stack(outputs, dim=1)
 
 
 class ResidualBlocksWithInputConv(BaseModule):

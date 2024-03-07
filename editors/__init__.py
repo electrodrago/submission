@@ -63,7 +63,7 @@ from .ttsr import LTE, TTSR, SearchTransformer, TTSRDiscriminator, TTSRNet
 from .wgan_gp import WGANGP
 from .real_cleanvsr import RealCleanVSRNet, RealCleanVSR
 from .real_csrgan import CleanRRDBNet
-from .mambavsr import MambaVSRNet, MambaVSROtherNet
+from .mambavsr import MambaVSRNet, MambaVSROtherNet, MambaVSR
 
 __all__ = [
     'AOTEncoderDecoder', 'AOTBlockNeck', 'AOTInpaintor',
@@ -92,5 +92,5 @@ __all__ = [
     'NAFBaselineLocal', 'NAFNet', 'NAFNetLocal', 'DenoisingUnet',
     'ClipWrapper', 'EG3D', 'Restormer', 'SwinIRNet', 'StableDiffusion',
     'ControlStableDiffusion', 'DreamBooth', 'RealCleanVSRNet', 'RealCleanVSR',
-    'CleanRRDBNet', 'MambaVSRNet', 'MambaVSROtherNet'
+    'CleanRRDBNet', 'MambaVSRNet', 'MambaVSROtherNet', 'MambaVSR'
 ]
