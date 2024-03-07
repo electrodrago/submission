@@ -39,6 +39,7 @@ class MambaVSROtherNet(BaseModule):
     def __init__(self, 
                     mid_channels=64, 
                     prop_blocks=5,
+                    embed_dim=192,
                     depth=6,
                     d_state=16,
                     drop_rate=0.,
@@ -81,23 +82,28 @@ class MambaVSROtherNet(BaseModule):
             drop_path=dpr,
             norm_layer=norm_layer
         )
-        self.embed = Embed(embed_dim=mid_channels)
-        self.unembed = UnEmbed(embed_dim=mid_channels)
-        self.norm = norm_layer(mid_channels)
+        self.embed_prop = Embed(embed_dim=mid_channels)
+        self.unembed_prop = UnEmbed(embed_dim=mid_channels)
+        self.norm_prop = norm_layer(mid_channels)
 
         # aggregation
-        self.fusion = nn.Conv2d(
-            mid_channels * 3, mid_channels, 1, 1, 0, bias=True)
+        self.fusion_1 = nn.Conv2d(
+            mid_channels * 3, embed_dim, 1, 1, 0, bias=True)
+        self.fusion_2 = nn.Conv2d(
+            embed_dim, mid_channels, 1, 1, 0, bias=True)
 
         self.pos_drop = nn.Dropout(p=drop_rate)
         self.vssmg_aggr = ResidualGroup(
-            dim=mid_channels,
+            dim=embed_dim,
             depth=depth,
             d_state=d_state,
             mlp_ratio=mlp_ratio,
             drop_path=dpr,
             norm_layer=norm_layer
         )
+        self.embed = Embed(embed_dim=embed_dim)
+        self.unembed = UnEmbed(embed_dim=embed_dim)
+        self.norm = norm_layer(mid_channels * 3)
 
         # upsample
         self.upsample1 = PixelShufflePack(
@@ -113,7 +119,7 @@ class MambaVSROtherNet(BaseModule):
         # Fix SpyNet parameters
         self.spynet.requires_grad_(False)
     
-    def ssm(self, x, func):
+    def ssm_aggr(self, x):
         # x: [n, c, h, w]
         x_size = (x.shape[2], x.shape[3])
         x = self.embed(x) # n,l,c
@@ -121,10 +127,25 @@ class MambaVSROtherNet(BaseModule):
 
         x = self.pos_drop(x)
 
-        x = func(x, x_size)
+        x = self.vssmg_aggr(x, x_size)
 
         x = self.norm(x)  # n seq_len c
         x = self.unembed(x, x_size)
+
+        return x
+    
+    def ssm_prop(self, x, func):
+        # x: [n, c, h, w]
+        x_size = (x.shape[2], x.shape[3])
+        x = self.embed_prop(x) # n,l,c
+        x = self.norm_prop(x)
+
+        x = self.pos_drop(x)
+
+        x = func(x, x_size)
+
+        x = self.norm_prop(x)  # n seq_len c
+        x = self.unembed_prop(x, x_size)
 
         return x
 
@@ -140,7 +161,7 @@ class MambaVSROtherNet(BaseModule):
 
             feat_prop = torch.cat([feats[:, i, :, :, :], feat_prop], dim=1)
             feat_prop = self.backward_prop(feat_prop)
-            feat_prop = self.ssm(feat_prop, self.backward_vssmg)
+            feat_prop = self.ssm_prop(feat_prop, self.backward_vssmg)
 
             feats_backward.append(feat_prop)
         feats_backward = feats_backward[::-1]
@@ -158,7 +179,7 @@ class MambaVSROtherNet(BaseModule):
 
             feat_prop = torch.cat([feats[:, i, :, :, :], feat_prop], dim=1)
             feat_prop = self.forward_prop(feat_prop)
-            feat_prop = self.ssm(feat_prop, self.forward_vssmg)
+            feat_prop = self.ssm_prop(feat_prop, self.forward_vssmg)
 
             feats_forward.append(feat_prop)
         return feats_backward, feats_forward
@@ -245,8 +266,9 @@ class MambaVSROtherNet(BaseModule):
             # TODO: concat backward and forward, then selection
             # aggregate backward and forward 
             out = torch.cat([feats_backward[i], feat_curr, feats_forward[i]], dim=1)
-            out = self.lrelu(self.fusion(out))
-            out = self.ssm(out, self.vssmg_aggr)
+            out = self.lrelu(self.fusion_1(out))
+            out = self.ssm_aggr(out)
+            out = self.lrelu(self.fusion_2(out))
 
             # pixle-shuffle upsample
             out = self.lrelu(self.upsample1(out))

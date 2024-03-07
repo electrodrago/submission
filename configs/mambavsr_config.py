@@ -19,7 +19,8 @@ model = dict(
         drop_rate=0.,
         mlp_ratio=2.,
         drop_path_rate=0.1,
-        spynet_pretrained='./spynet/spynet.pth'),
+        spynet_pretrained='https://download.openmmlab.com/mmediting/restorers/'
+        'basicvsr/spynet_20210409-c6c1bd09.pth'),
     pixel_loss=dict(type='CharbonnierLoss', loss_weight=1.0, reduction='mean'),
     data_preprocessor=dict(
         type='DataPreprocessor',
