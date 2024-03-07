@@ -59,10 +59,7 @@ class MambaVSROtherNet(BaseModule):
         self.spynet = SPyNet(pretrained=spynet_pretrained)
         
         # Second loss branch to guide the flow warped
-        self.reconstruct_from_warped = nn.Sequential(
-            ResidualBlocksWithInputConv(mid_channels * 2, mid_channels, 5),
-            nn.Conv2d(mid_channels, 3, 3, 1, 1, bias=True),
-        )
+        self.reconstruct_from_warped = nn.Conv2d(mid_channels * 2, 3, 3, 1, 1, bias=True)
 
         # feature extraction
         self.feat_extract = ResidualBlocksWithInputConv(3, mid_channels, 5)
