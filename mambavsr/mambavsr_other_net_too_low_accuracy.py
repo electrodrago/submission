@@ -39,7 +39,7 @@ class MambaVSROtherNet(BaseModule):
     def __init__(self, 
                     mid_channels=64, 
                     prop_blocks=10,
-                    depth=10,
+                    depth=6,
                     d_state=16,
                     drop_rate=0.,
                     mlp_ratio=2.,
@@ -50,6 +50,7 @@ class MambaVSROtherNet(BaseModule):
         super().__init__()
 
         self.mid_channels = mid_channels
+        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
 
         # activation function
         self.lrelu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
@@ -58,17 +59,14 @@ class MambaVSROtherNet(BaseModule):
         self.spynet = SPyNet(pretrained=spynet_pretrained)
         
         # Second loss branch to guide the flow warped
-        self.reconstruct_from_warped = nn.Conv2d(mid_channels, 3, 3, 1, 1, bias=False)
+        self.reconstruct_from_warped = nn.Conv2d(mid_channels * 2, 3, 3, 1, 1, bias=False)
 
         # feature extraction
         self.feat_extract = ResidualBlocksWithInputConv(3, mid_channels, 5)
 
         # propagation blocks
         self.backward_prop = ResidualBlocksWithInputConv(mid_channels * 2, mid_channels, prop_blocks)
-        self.forward_prop = ResidualBlocksWithInputConv(mid_channels * 3, mid_channels, prop_blocks + 10)
-
-        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
-        self.vssmg = ResidualGroup(
+        self.backward_vssmg = ResidualGroup(
             dim=mid_channels,
             depth=depth,
             d_state=d_state,
@@ -77,25 +75,42 @@ class MambaVSROtherNet(BaseModule):
             norm_layer=norm_layer
         )
 
+        self.forward_prop = ResidualBlocksWithInputConv(mid_channels * 2, mid_channels, prop_blocks)
+        self.forward_vssmg = ResidualGroup(
+            dim=mid_channels,
+            depth=depth,
+            d_state=d_state,
+            mlp_ratio=mlp_ratio,
+            drop_path=dpr,
+            norm_layer=norm_layer
+        )
+
+        # aggregation
+        self.fusion = nn.Conv2d(
+            mid_channels * 3, mid_channels, 1, 1, 0, bias=True)
+
         self.pos_drop = nn.Dropout(p=drop_rate)
+        self.vssmg_aggr = ResidualGroup(
+            dim=mid_channels,
+            depth=depth,
+            d_state=d_state,
+            mlp_ratio=mlp_ratio,
+            drop_path=dpr,
+            norm_layer=norm_layer
+        )
         self.embed = Embed(embed_dim=mid_channels)
         self.unembed = UnEmbed(embed_dim=mid_channels)
         self.norm = norm_layer(mid_channels)
 
-        # aggregation
-        self.fusion = ResidualBlocksWithInputConv(mid_channels * 3, mid_channels, 5)
-
         # upsample
         self.upsample1 = PixelShufflePack(
-            mid_channels * 2, mid_channels, 2, upsample_kernel=3)
+            mid_channels, mid_channels, 2, upsample_kernel=3)
         self.upsample2 = PixelShufflePack(
             mid_channels, 64, 2, upsample_kernel=3)
         self.conv_hr = nn.Conv2d(64, 64, 3, 1, 1)
         self.conv_last = nn.Conv2d(64, 3, 3, 1, 1)
         self.img_upsample = nn.Upsample(
             scale_factor=4, mode='bilinear', align_corners=False)
-        self.lrs_downsample = nn.Upsample(
-            scale_factor=4=0.25, mode='bilinear', align_corners=False)
 
         self._raised_warning = False
     
@@ -125,14 +140,14 @@ class MambaVSROtherNet(BaseModule):
                 feat_prop = flow_warp(feat_prop, flow.permute(0, 2, 3, 1))
 
             feat_prop = torch.cat([feats[:, i, :, :, :], feat_prop], dim=1)
-            feat_prop = feat_prop + self.backward_prop(feat_prop)
+            feat_prop = self.backward_prop(feat_prop)
+            feat_prop = self.ssm(feat_prop, self.backward_vssmg)
 
             feats_backward.append(feat_prop)
         feats_backward = feats_backward[::-1]
 
         # forward-time propagation
         feats_forward = []
-        feats_ssm = []
         feat_prop = torch.zeros_like(feat_prop)
         for i in range(0, t):
             if i > 0:  # no warping required for the first timestep
@@ -143,14 +158,11 @@ class MambaVSROtherNet(BaseModule):
                 feat_prop = flow_warp(feat_prop, flow.permute(0, 2, 3, 1))
 
             feat_prop = torch.cat([feats[:, i, :, :, :], feat_prop], dim=1)
-            feat_prop = feat_prop + self.forward_prop(feat_prop)
-
-            feat_ssm = feat_prop + self.ssm(feat_prop, self.forward_vssmg)
+            feat_prop = self.forward_prop(feat_prop)
+            feat_prop = self.ssm(feat_prop, self.forward_vssmg)
 
             feats_forward.append(feat_prop)
-            feats_ssm.append(feat_ssm)
-
-        return torch.stack(feats_backward, dim=1), torch.stack(feats_forward, dim=1), feat_ssm
+        return torch.stack(feats_backward, dim=1), torch.stack(feats_forward, dim=1)
 
     def check_if_mirror_extended(self, lrs):
         """Check whether the input is a mirror-extended sequence.
@@ -224,22 +236,24 @@ class MambaVSROtherNet(BaseModule):
         # extract feature and propagation
         feats = self.feat_extract(lrs.view(-1, c, h, w))
         feats = feats.view(n, t, -1, h, w)
-        feats_backward, feats_forward, feats_ssm = self.propagation(feats, flows_backward, flows_forward)
+        feats_backward, feats_forward = self.propagation(feats, flows_backward, flows_forward)
 
-        recon = self.reconstruct_from_warped(feats_ssm.view(-1, self.mid_channels, h, w))
-        lrs_recon = self.img_upsample(self.lrs_downsample(lrs.view(-1, c, h, w)))
-        recon = (recon + lrs_recon).view(n, t, -1, h, w)
+        recon = torch.cat([feats_backward, feats_forward], dim=2)
+        recon = self.reconstruct_from_warped(recon.view(-1, self.mid_channels * 2, h, w))
+        recon = recon.view(n, t, -1, h, w)
 
         # aggregation and upsampling
         outputs = []
         for i in range(0, t):
             feat_curr = feats[:, i, :, :, :]
-            feat_ssm_curr = feats_ssm[:, i, :, :, :]
-            feat_forward = feats_forward[:, i, :, :, :]
+            feat_backward = feats_backward[:, i, :, :, :]
+            feat_forward = feats_backward[:, i, :, :, :]
             
-            # aggregate ssm and forward 
-            out = torch.cat([feat_ssm_curr, feat_curr, feat_forward], dim=1)
-            out = self.fusion(out)
+            # TODO: concat backward and forward, then selection
+            # aggregate backward and forward 
+            out = torch.cat([feat_backward, feat_curr, feat_forward], dim=1)
+            out = self.lrelu(self.fusion(out))
+            out = self.ssm(out, self.vssmg_aggr)
 
             # pixle-shuffle upsample
             out = self.lrelu(self.upsample1(out))

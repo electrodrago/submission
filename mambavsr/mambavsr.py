@@ -91,8 +91,10 @@ class MambaVSR(RealESRGAN):
         Returns:
             Tensor: Extract gt data.
         """
-
-        gt_pixel, gt_percep, gt_gan = super().extract_gt_data(data_samples)
+        if discriminator == None:
+            gt_pixel, gt_percep, gt_gan = self.extract_gt_data(data_samples)
+        else:
+            gt_pixel, gt_percep, gt_gan = super().extract_gt_data(data_samples)
         n, t, c, h, w = gt_pixel.size()
         gt_pixel = gt_pixel.view(-1, c, h, w)
         gt_percep = gt_percep.view(-1, c, h, w)
@@ -103,7 +105,7 @@ class MambaVSR(RealESRGAN):
             gt_clean = F.interpolate(
                 gt_clean,
                 scale_factor=0.25,
-                mode='area',
+                mode='bicubic',
                 recompute_scale_factor=False)
             gt_clean = gt_clean.view(n, t, c, h // 4, w // 4)
         else:
@@ -131,7 +133,7 @@ class MambaVSR(RealESRGAN):
             batch_gt_data=(gt_pixel, gt_percep, gt_gan))
 
         if self.reconstruct_loss:
-            losses['loss_clean'] = self.reconstruct_loss(fake_g_lq, gt_clean)
+            losses['loss_reconstruct'] = self.reconstruct_loss(fake_g_lq, gt_clean)
 
         return losses
 
@@ -208,3 +210,20 @@ class MambaVSR(RealESRGAN):
         """
 
         return self.generator(batch_inputs, return_reconstructed=True)
+    
+    def extract_gt_data(self, data_samples):
+        """extract gt data from data samples.
+
+        Args:
+            data_samples (list): List of DataSample.
+
+        Returns:
+            Tensor: Extract gt data.
+        """
+
+        gt = data_samples.gt_img
+
+        gt_pixel, gt_percep, gt_gan = gt.clone(), gt.clone(), gt.clone()
+
+        return gt_pixel, gt_percep, gt_gan
+

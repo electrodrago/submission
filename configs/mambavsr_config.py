@@ -49,7 +49,7 @@ data_root = '/content/drive/MyDrive/1THESIS/train'
 
 train_dataloader = dict(
     num_workers=12,
-    batch_size=6,
+    batch_size=4,
     persistent_workers=False,
     sampler=dict(type='InfiniteSampler', shuffle=True),
     dataset=dict(
@@ -58,7 +58,7 @@ train_dataloader = dict(
         data_root=data_root,
         data_prefix=dict(img='train_sharp_bicubic/X4', gt='train_sharp'),
         depth=1,
-        num_input_frames=5,
+        num_input_frames=3,
         pipeline=train_pipeline))
 
 train_cfg = dict(
