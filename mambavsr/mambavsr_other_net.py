@@ -87,7 +87,7 @@ class MambaVSROtherNet(BaseModule):
 
         # upsample
         self.upsample1 = PixelShufflePack(
-            mid_channels * 2, mid_channels, 2, upsample_kernel=3)
+            mid_channels, mid_channels, 2, upsample_kernel=3)
         self.upsample2 = PixelShufflePack(
             mid_channels, 64, 2, upsample_kernel=3)
         self.conv_hr = nn.Conv2d(64, 64, 3, 1, 1)
@@ -95,7 +95,7 @@ class MambaVSROtherNet(BaseModule):
         self.img_upsample = nn.Upsample(
             scale_factor=4, mode='bilinear', align_corners=False)
         self.lrs_downsample = nn.Upsample(
-            scale_factor=4=0.25, mode='bilinear', align_corners=False)
+            scale_factor=0.25, mode='bilinear', align_corners=False)
 
         self._raised_warning = False
     
@@ -125,7 +125,7 @@ class MambaVSROtherNet(BaseModule):
                 feat_prop = flow_warp(feat_prop, flow.permute(0, 2, 3, 1))
 
             feat_prop = torch.cat([feats[:, i, :, :, :], feat_prop], dim=1)
-            feat_prop = feat_prop + self.backward_prop(feat_prop)
+            feat_prop = self.backward_prop(feat_prop)
 
             feats_backward.append(feat_prop)
         feats_backward = feats_backward[::-1]
@@ -142,15 +142,15 @@ class MambaVSROtherNet(BaseModule):
                     flow = flows_backward[:, -i, :, :, :]
                 feat_prop = flow_warp(feat_prop, flow.permute(0, 2, 3, 1))
 
-            feat_prop = torch.cat([feats[:, i, :, :, :], feat_prop], dim=1)
-            feat_prop = feat_prop + self.forward_prop(feat_prop)
+            feat_prop = torch.cat([feats[:, i, :, :, :], feats_backward[i], feat_prop], dim=1)
+            feat_prop = self.forward_prop(feat_prop)
 
-            feat_ssm = feat_prop + self.ssm(feat_prop, self.forward_vssmg)
+            feat_ssm = self.ssm(feat_prop, self.vssmg)
 
             feats_forward.append(feat_prop)
             feats_ssm.append(feat_ssm)
 
-        return torch.stack(feats_backward, dim=1), torch.stack(feats_forward, dim=1), feat_ssm
+        return torch.stack(feats_backward, dim=1), torch.stack(feats_forward, dim=1), torch.stack(feats_ssm, dim=1)
 
     def check_if_mirror_extended(self, lrs):
         """Check whether the input is a mirror-extended sequence.
