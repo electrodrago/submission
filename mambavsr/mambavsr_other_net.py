@@ -83,7 +83,7 @@ class MambaVSROtherNet(BaseModule):
         self.norm = norm_layer(mid_channels)
 
         # aggregation
-        self.fusion = ResidualBlocksWithInputConv(mid_channels * 3, mid_channels, 5)
+        self.fusion = ResidualBlocksWithInputConv(mid_channels * 3, mid_channels, 10)
 
         # upsample
         self.upsample1 = PixelShufflePack(
