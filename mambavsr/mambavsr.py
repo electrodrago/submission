@@ -91,23 +91,27 @@ class MambaVSR(RealESRGAN):
         Returns:
             Tensor: Extract gt data.
         """
-        if discriminator == None:
-            gt_pixel, gt_percep, gt_gan = self.extract_gt_data(data_samples)
+        gt = data_samples.gt_img
+        if self.discriminator is not None:
+            gt_unsharp = data_samples.gt_unsharp / 255.
         else:
-            gt_pixel, gt_percep, gt_gan = super().extract_gt_data(data_samples)
+            gt_unsharp = data_samples.gt_img / 255.
+
+        gt_pixel, gt_percep, gt_gan = gt.clone(), gt.clone(), gt.clone()
+        if self.is_use_sharpened_gt_in_pixel:
+            gt_pixel = gt_unsharp.clone()
+        if self.is_use_sharpened_gt_in_percep:
+            gt_percep = gt_unsharp.clone()
+        if self.is_use_sharpened_gt_in_gan:
+            gt_gan = gt_unsharp.clone()
+
         n, t, c, h, w = gt_pixel.size()
         gt_pixel = gt_pixel.view(-1, c, h, w)
         gt_percep = gt_percep.view(-1, c, h, w)
         gt_gan = gt_gan.view(-1, c, h, w)
 
         if self.reconstruct_loss:
-            gt_clean = gt_pixel.view(-1, c, h, w)
-            gt_clean = F.interpolate(
-                gt_clean,
-                scale_factor=0.25,
-                mode='bicubic',
-                recompute_scale_factor=False)
-            gt_clean = gt_clean.view(n, t, c, h // 4, w // 4)
+            gt_clean = F.pixel_unshuffle(gt_pixel, 4)
         else:
             gt_clean = None
 

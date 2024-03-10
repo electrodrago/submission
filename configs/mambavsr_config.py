@@ -49,7 +49,7 @@ data_root = '/content/drive/MyDrive/1THESIS/train'
 
 train_dataloader = dict(
     num_workers=12,
-    batch_size=8,
+    batch_size=4,
     persistent_workers=False,
     sampler=dict(type='InfiniteSampler', shuffle=True),
     dataset=dict(

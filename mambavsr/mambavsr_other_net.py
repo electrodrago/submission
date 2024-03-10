@@ -11,10 +11,13 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.modules.utils import _pair
 from mmcv.cnn import ConvModule
+from mmcv.ops import DeformConv2d, DeformConv2dPack, deform_conv2d
 from mmengine import MMLogger, print_log
 from mmengine.model import BaseModule
 from mmengine.runner import load_checkpoint
+from mmengine.model.weight_init import constant_init
 
 from mmagic.models.archs import PixelShufflePack, ResidualBlockNoBN
 from mmagic.models.utils import flow_warp, make_layer
@@ -38,7 +41,7 @@ class MambaVSROtherNet(BaseModule):
 
     def __init__(self, 
                     mid_channels=64, 
-                    prop_blocks=10,
+                    prop_blocks=15,
                     depth=10,
                     d_state=16,
                     drop_rate=0.,
@@ -57,33 +60,34 @@ class MambaVSROtherNet(BaseModule):
         # optical flow network for feature alignment
         self.spynet = SPyNet(pretrained=spynet_pretrained)
         
-        # Second loss branch to guide the flow warped
-        self.reconstruct_from_warped = nn.Conv2d(mid_channels, 3, 3, 1, 1, bias=False)
+        # Second loss branch to guide the flow and deformable warped
+        self.reconstruct_from_warped = nn.Conv2d(mid_channels, 48, 3, 1, 1, bias=False)
 
         # feature extraction
         self.feat_extract = ResidualBlocksWithInputConv(3, mid_channels, 5)
 
         # propagation blocks
-        self.backward_prop = ResidualBlocksWithInputConv(mid_channels * 2, mid_channels, prop_blocks)
-        self.forward_prop = ResidualBlocksWithInputConv(mid_channels * 3, mid_channels, prop_blocks + 10)
+        self.backward_prop = ResidualBlocksWithInputConv(mid_channels * 3, mid_channels, prop_blocks)
+        self.forward_prop = ResidualBlocksWithInputConv(mid_channels * 4, mid_channels, prop_blocks)
+        self.backward_deform = AugmentedDeformConv2dPack(mid_channels, mid_channels, 3, padding=1, deform_groups=8)
+        self.forward_deform = AugmentedDeformConv2dPack(mid_channels, mid_channels, 3, padding=1, deform_groups=8)
 
+        # aggregation
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
         self.vssmg = ResidualGroup(
-            dim=mid_channels,
+            dim=mid_channels * 2,
             depth=depth,
             d_state=d_state,
             mlp_ratio=mlp_ratio,
             drop_path=dpr,
             norm_layer=norm_layer
         )
-
         self.pos_drop = nn.Dropout(p=drop_rate)
-        self.embed = Embed(embed_dim=mid_channels)
-        self.unembed = UnEmbed(embed_dim=mid_channels)
-        self.norm = norm_layer(mid_channels)
+        self.embed = Embed(embed_dim=mid_channels * 2)
+        self.unembed = UnEmbed(embed_dim=mid_channels * 2)
+        self.norm = norm_layer(mid_channels * 2)
 
-        # aggregation
-        self.fusion = ResidualBlocksWithInputConv(mid_channels * 3, mid_channels, 10)
+        self.fusion = ResidualBlocksWithInputConv(mid_channels * 2, mid_channels, 5)
 
         # upsample
         self.upsample1 = PixelShufflePack(
@@ -94,10 +98,9 @@ class MambaVSROtherNet(BaseModule):
         self.conv_last = nn.Conv2d(64, 3, 3, 1, 1)
         self.img_upsample = nn.Upsample(
             scale_factor=4, mode='bilinear', align_corners=False)
-        self.lrs_downsample = nn.Upsample(
-            scale_factor=0.25, mode='bilinear', align_corners=False)
 
         self._raised_warning = False
+        self.spynet.requires_grad_(False)
     
     def ssm(self, x, func):
         # x: [n, c, h, w]
@@ -120,11 +123,14 @@ class MambaVSROtherNet(BaseModule):
         feats_backward = []
         feat_prop = feats.new_zeros(n, self.mid_channels, h, w)
         for i in range(t - 1, -1, -1):
+            feat_curr = feats[:, i, :, :, :]
+            feat_deform = feat_curr
             if i < t - 1:  # no warping required for the last timestep
                 flow = flows_backward[:, i, :, :, :]
                 feat_prop = flow_warp(feat_prop, flow.permute(0, 2, 3, 1))
+                feat_deform = self.backward_deform(feat_curr, feats[:, i + 1, :, :, :])
 
-            feat_prop = torch.cat([feats[:, i, :, :, :], feat_prop], dim=1)
+            feat_prop = torch.cat([feat_curr, feat_prop, feat_deform], dim=1)
             feat_prop = self.backward_prop(feat_prop)
 
             feats_backward.append(feat_prop)
@@ -135,22 +141,22 @@ class MambaVSROtherNet(BaseModule):
         feats_ssm = []
         feat_prop = torch.zeros_like(feat_prop)
         for i in range(0, t):
+            feat_curr = feats[:, i, :, :, :]
+            feat_deform = feat_curr
             if i > 0:  # no warping required for the first timestep
                 if flows_forward is not None:
                     flow = flows_forward[:, i - 1, :, :, :]
                 else:
                     flow = flows_backward[:, -i, :, :, :]
                 feat_prop = flow_warp(feat_prop, flow.permute(0, 2, 3, 1))
+                feat_deform = self.forward_deform(feat_curr, feats[:, i - 1, :, :, :])
 
-            feat_prop = torch.cat([feats[:, i, :, :, :], feats_backward[i], feat_prop], dim=1)
+            feat_prop = torch.cat([feat_curr, feat_prop, feat_deform, feats_backward[i]], dim=1)
             feat_prop = self.forward_prop(feat_prop)
 
-            feat_ssm = self.ssm(feat_prop, self.vssmg)
-
             feats_forward.append(feat_prop)
-            feats_ssm.append(feat_ssm)
 
-        return torch.stack(feats_backward, dim=1), torch.stack(feats_forward, dim=1), torch.stack(feats_ssm, dim=1)
+        return torch.stack(feats_backward, dim=1), torch.stack(feats_forward, dim=1)
 
     def check_if_mirror_extended(self, lrs):
         """Check whether the input is a mirror-extended sequence.
@@ -224,21 +230,17 @@ class MambaVSROtherNet(BaseModule):
         # extract feature and propagation
         feats = self.feat_extract(lrs.view(-1, c, h, w))
         feats = feats.view(n, t, -1, h, w)
-        feats_backward, feats_forward, feats_ssm = self.propagation(feats, flows_backward, flows_forward)
-
-        recon = self.reconstruct_from_warped(feats_ssm.view(-1, self.mid_channels, h, w))
-        lrs_recon = self.img_upsample(self.lrs_downsample(lrs.view(-1, c, h, w)))
-        recon = (recon + lrs_recon).view(n, t, -1, h, w)
+        feats_backward, feats_forward = self.propagation(feats, flows_backward, flows_forward)
 
         # aggregation and upsampling
         outputs = []
         for i in range(0, t):
             feat_curr = feats[:, i, :, :, :]
-            feat_ssm_curr = feats_ssm[:, i, :, :, :]
             feat_forward = feats_forward[:, i, :, :, :]
             
-            # aggregate ssm and forward 
-            out = torch.cat([feat_ssm_curr, feat_curr, feat_forward], dim=1)
+            # aggregate then ssm 
+            out = torch.cat([feat_curr, feat_forward], dim=1)
+            out = self.ssm(out, self.vssmg)
             out = self.fusion(out)
 
             # pixle-shuffle upsample
@@ -251,6 +253,8 @@ class MambaVSROtherNet(BaseModule):
             outputs.append(out)
 
         if return_reconstructed:
+            recon = self.reconstruct_from_warped(feats_forward.view(-1, self.mid_channels, h, w))
+            recon = recon.view(n, t, -1, h, w) + F.pixel_unshuffle(base, 4)
             return torch.stack(outputs, dim=1), recon
         else:
             return torch.stack(outputs, dim=1)
@@ -848,3 +852,51 @@ class UnEmbed(nn.Module):
     def forward(self, x, x_size):
         x = x.transpose(1, 2).view(x.shape[0], self.embed_dim, x_size[0], x_size[1])  # b Ph*Pw c
         return x
+
+
+class AugmentedDeformConv2dPack(DeformConv2d):
+    """Augmented Deformable Convolution Pack.
+
+    Different from DeformConv2dPack, which generates offsets from the
+    preceding feature, this AugmentedDeformConv2dPack takes another feature to
+    generate the offsets.
+
+    Args:
+        in_channels (int): Number of channels in the input feature.
+        out_channels (int): Number of channels produced by the convolution.
+        kernel_size (int or tuple[int]): Size of the convolving kernel.
+        stride (int or tuple[int]): Stride of the convolution. Default: 1.
+        padding (int or tuple[int]): Zero-padding added to both sides of the
+            input. Default: 0.
+        dilation (int or tuple[int]): Spacing between kernel elements.
+            Default: 1.
+        groups (int): Number of blocked connections from input channels to
+            output channels. Default: 1.
+        deform_groups (int): Number of deformable group partitions.
+        bias (bool or str): If specified as `auto`, it will be decided by the
+            norm_cfg. Bias will be set as True if norm_cfg is None, otherwise
+            False.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.conv_offset = nn.Conv2d(
+            self.in_channels,
+            self.deform_groups * 2 * self.kernel_size[0] * self.kernel_size[1],
+            kernel_size=self.kernel_size,
+            stride=_pair(self.stride),
+            padding=_pair(self.padding),
+            bias=True)
+
+        self.init_offset()
+
+    def init_offset(self):
+        """Init constant offset."""
+        constant_init(self.conv_offset, val=0, bias=0)
+
+    def forward(self, x, extra_feat):
+        """Forward function."""
+        offset = self.conv_offset(extra_feat)
+        return deform_conv2d(x, offset, self.weight, self.stride, self.padding,
+                             self.dilation, self.groups, self.deform_groups)
