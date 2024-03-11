@@ -234,6 +234,7 @@ class MambaVSROtherNet(BaseModule):
 
         # aggregation and upsampling
         outputs = []
+        bases = []
         for i in range(0, t):
             feat_curr = feats[:, i, :, :, :]
             feat_forward = feats_forward[:, i, :, :, :]
@@ -250,11 +251,13 @@ class MambaVSROtherNet(BaseModule):
             out = self.conv_last(out)
             base = self.img_upsample(lrs[:, i, :, :, :])
             out += base
+            bases.append(base)
             outputs.append(out)
 
         if return_reconstructed:
+            bases = torch.stack(bases, dim=1)
             recon = self.reconstruct_from_warped(feats_forward.view(-1, self.mid_channels, h, w))
-            recon = recon.view(n, t, -1, h, w) + F.pixel_unshuffle(base, 4)
+            recon = recon.view(n, t, -1, h, w) + F.pixel_unshuffle(bases, 4)
             return torch.stack(outputs, dim=1), recon
         else:
             return torch.stack(outputs, dim=1)
@@ -898,5 +901,5 @@ class AugmentedDeformConv2dPack(DeformConv2d):
     def forward(self, x, extra_feat):
         """Forward function."""
         offset = self.conv_offset(extra_feat)
-        return deform_conv2d(x, offset, self.weight, self.stride, self.padding,
+        return deform_conv2d(x.contiguous(), offset, self.weight, self.stride, self.padding,
                              self.dilation, self.groups, self.deform_groups)

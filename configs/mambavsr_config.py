@@ -12,7 +12,7 @@ model = dict(
     generator=dict(
         type='MambaVSROtherNet',
         mid_channels=64,
-        prop_blocks=10,
+        prop_blocks=15,
         depth=6,
         d_state=16,
         drop_rate=0.,
@@ -58,7 +58,7 @@ train_dataloader = dict(
         data_root=data_root,
         data_prefix=dict(img='train_sharp_bicubic/X4', gt='train_sharp'),
         depth=1,
-        num_input_frames=3,
+        num_input_frames=5,
         pipeline=train_pipeline))
 
 train_cfg = dict(
