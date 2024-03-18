@@ -42,7 +42,7 @@ class MambaVSROtherNet(BaseModule):
     def __init__(self, 
                     mid_channels=64, 
                     prop_blocks=15,
-                    depth=2,
+                    depth=10,
                     d_state=16,
                     drop_rate=0.,
                     mlp_ratio=2.,
@@ -72,18 +72,10 @@ class MambaVSROtherNet(BaseModule):
         self.backward_deform = AugmentedDeformConv2dPack(mid_channels, mid_channels, 3, padding=1, deform_groups=8)
         self.forward_deform = AugmentedDeformConv2dPack(mid_channels, mid_channels, 3, padding=1, deform_groups=8)
 
+        # aggregation
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
-        self.backward_vssmg = ResidualGroup(
-            dim=mid_channels,
-            depth=depth,
-            d_state=d_state,
-            mlp_ratio=mlp_ratio,
-            drop_path=dpr,
-            norm_layer=norm_layer
-        )
-
-        self.forward_vssmg = ResidualGroup(
-            dim=mid_channels,
+        self.vssmg = ResidualGroup(
+            dim=mid_channels * 2,
             depth=depth,
             d_state=d_state,
             mlp_ratio=mlp_ratio,
@@ -91,11 +83,10 @@ class MambaVSROtherNet(BaseModule):
             norm_layer=norm_layer
         )
         self.pos_drop = nn.Dropout(p=drop_rate)
-        self.embed = Embed(embed_dim=mid_channels)
-        self.unembed = UnEmbed(embed_dim=mid_channels)
-        self.norm = norm_layer(mid_channels)
+        self.embed = Embed(embed_dim=mid_channels * 2)
+        self.unembed = UnEmbed(embed_dim=mid_channels * 2)
+        self.norm = norm_layer(mid_channels * 2)
 
-        # aggregation
         self.fusion = ResidualBlocksWithInputConv(mid_channels * 2, mid_channels, 5)
 
         # upsample
@@ -141,7 +132,6 @@ class MambaVSROtherNet(BaseModule):
 
             feat_prop = torch.cat([feat_curr, feat_prop, feat_deform], dim=1)
             feat_prop = self.backward_prop(feat_prop)
-            feat_prop = self.ssm(feat_prop, self.backward_vssmg)
 
             feats_backward.append(feat_prop)
         feats_backward = feats_backward[::-1]
@@ -163,7 +153,6 @@ class MambaVSROtherNet(BaseModule):
 
             feat_prop = torch.cat([feat_curr, feat_prop, feat_deform, feats_backward[i]], dim=1)
             feat_prop = self.forward_prop(feat_prop)
-            feat_prop = self.ssm(feat_prop, self.forward_vssmg)
 
             feats_forward.append(feat_prop)
 
@@ -252,6 +241,7 @@ class MambaVSROtherNet(BaseModule):
             
             # aggregate then ssm 
             out = torch.cat([feat_curr, feat_forward], dim=1)
+            out = self.ssm(out, self.vssmg)
             out = self.fusion(out)
 
             # pixle-shuffle upsample
@@ -570,15 +560,15 @@ class SS2D(nn.Module):
         self.dt_rank = math.ceil(self.d_model / 16) if dt_rank == "auto" else dt_rank
 
         self.in_proj = nn.Linear(self.d_model, self.d_inner * 2, bias=bias, **factory_kwargs)
-        self.deform_conv2d = DeformConv2dPack(
+        self.conv2d = nn.Conv2d(
             in_channels=self.d_inner,
             out_channels=self.d_inner,
             groups=self.d_inner,
+            bias=conv_bias,
             kernel_size=d_conv,
-            deform_groups=8,
-            padding=(d_conv - 1) // 2
+            padding=(d_conv - 1) // 2,
+            **factory_kwargs,
         )
-        
         self.act = nn.SiLU()
 
         self.x_proj = (
@@ -612,7 +602,6 @@ class SS2D(nn.Module):
         self.out_norm = nn.LayerNorm(self.d_inner)
         self.out_proj = nn.Linear(self.d_inner, self.d_model, bias=bias, **factory_kwargs)
         self.dropout = nn.Dropout(dropout) if dropout > 0. else None
-
 
     @staticmethod
     def dt_init(dt_rank, d_inner, dt_scale=1.0, dt_init="random", dt_min=0.001, dt_max=0.1, dt_init_floor=1e-4,
@@ -675,7 +664,6 @@ class SS2D(nn.Module):
         B, C, H, W = x.shape
         L = H * W
         K = 4
-
         x_hwwh = torch.stack([x.view(B, -1, L), torch.transpose(x, dim0=2, dim1=3).contiguous().view(B, -1, L)], dim=1).view(B, 2, -1, L)
         xs = torch.cat([x_hwwh, torch.flip(x_hwwh, dims=[-1])], dim=1) # (1, 4, 192, 3136)
 
@@ -711,7 +699,7 @@ class SS2D(nn.Module):
         x, z = xz.chunk(2, dim=-1)
 
         x = x.permute(0, 3, 1, 2).contiguous()
-        x = self.act(self.deform_conv2d(x))
+        x = self.act(self.conv2d(x))
         y1, y2, y3, y4 = self.forward_core(x)
         assert y1.dtype == torch.float32
         y = y1 + y2 + y3 + y4
